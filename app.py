@@ -298,39 +298,6 @@ def get_question_by_id(question_id):
 
     return question, 200
 
-@app.route('/questions', methods=['GET'])
-def get_question_by_position():
-    # Get the 'position' parameter from the query string
-    position = request.args.get('position', type=int)
-
-    if position is None:
-        return {"message": "Position parameter is required"}, 400
-
-    connection = utils.connect_to_db()
-    cursor = connection.cursor()
-
-    try:
-        # Query the database for the question with the given position
-        cursor.execute(f"SELECT * FROM {Q_TABLE_NAME} WHERE position = ?", (position,))
-        question_row = cursor.fetchone()
-
-        if not question_row:
-            return {"message": "Question not found"}, 404
-
-        # Map the question data to a dictionary
-        question = {
-            "id": question_row[0],
-            "text": question_row[1],
-            "title": question_row[2],
-            "image": question_row[3],
-            "position": question_row[4],
-            "possibleAnswers": json.loads(question_row[5])  # Deserialize JSON
-        }
-    finally:
-        connection.close()
-
-    return question, 200
-
 @app.route('/questions/<int:question_id>/answers', methods=['POST'])
 def add_answers_to_question(question_id):
     # Vérifier si le token est présent et valide
@@ -458,6 +425,47 @@ def update_question_by_position(position):
 
     # Return 204 No Content on success
     return '', 204
+@app.route('/participations', methods=['GET'])
+def get_participations():
+    # Vérifiez si l'utilisateur est autorisé (token admin)
+    token = request.headers.get('Authorization')
+    try:
+        jwt_utils.decode_token(token)
+    except jwt_utils.JwtError as e:
+        return {"message": str(e)}, 401
+
+    # Récupération du paramètre facultatif `playerName`
+    player_name = request.args.get('playerName')
+
+    # Connexion à la base de données
+    connection = utils.connect_to_db()
+    cursor = connection.cursor()
+
+    if player_name:
+        # Si un playerName est spécifié, filtrez les résultats
+        cursor.execute("SELECT * FROM participations WHERE player_name = ?", (player_name,))
+    else:
+        # Sinon, récupérez toutes les participations
+        cursor.execute("SELECT * FROM participations")
+
+    rows = cursor.fetchall()
+    connection.close()
+
+    # Conversion des résultats en JSON
+    participations = [
+        {
+            "playerName": row["player_name"],
+            "score": row["score"],
+            "answersSummaries": [
+                {"correctAnswerPosition": int(pos.split(":")[0]), "wasCorrect": bool(int(pos.split(":")[1]))}
+                for pos in row["answers_summaries"].split(",")
+            ] if row["answers_summaries"] else []
+        }
+        for row in rows
+    ]
+
+    return {"participations": participations}, 200
+
 
 @app.route('/participations', methods=['POST'])
 def add_participation():
